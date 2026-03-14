@@ -1,0 +1,127 @@
+:root {
+  /* 基础色板 - Apple 风格黑白灰 */
+  --color-bg-primary: #ffffff;
+  --color-bg-secondary: #f5f5f7;
+  --color-text-primary: #1d1d1f;
+  --color-text-secondary: #86868b;
+  --color-border: #d2d2d7;
+  --color-accent: #0066cc;
+  
+  /* 阴影与层次 */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08);
+  --radius-md: 12px;
+  --radius-lg: 18px;
+
+  /* 布局间距 */
+  --spacing-xs: 4px;
+  --spacing-sm: 8px;
+  --spacing-md: 16px;
+  --spacing-lg: 24px;
+  --spacing-xl: 40px;
+
+  /* 字体排版 - SF Pro 风格 */
+  --font-family-base: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+html,
+body,
+#app {
+  margin: 0;
+  padding: 0;
+  min-height: 100%;
+  background: var(--color-bg-secondary);
+  color: var(--color-text-primary);
+  font-family: var(--font-family-base);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+a {
+  color: var(--color-accent);
+  text-decoration: none;
+  transition: opacity 0.2s ease;
+}
+
+a:hover {
+  opacity: 0.8;
+}
+
+/* 覆盖 Element Plus 默认样式，实现极简风格 */
+:root {
+  --el-color-primary: #1d1d1f;
+  --el-color-primary-light-3: #424245;
+  --el-color-primary-light-5: #6e6e73;
+  --el-color-primary-light-7: #a1a1a6;
+  --el-color-primary-light-9: #e8e8ed;
+  --el-border-radius-base: 8px;
+  --el-border-color: #d2d2d7;
+}
+
+/* 按钮风格 - 黑底白字，无边框，圆角 */
+.el-button--primary {
+  background-color: var(--color-text-primary);
+  border-color: var(--color-text-primary);
+  font-weight: 500;
+}
+
+.el-button--primary:hover,
+.el-button--primary:focus {
+  background-color: #424245;
+  border-color: #424245;
+}
+
+/* 卡片风格 - 纯白背景，微阴影 */
+.el-card {
+  border: none;
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  background: var(--color-bg-primary);
+  transition: box-shadow 0.3s ease;
+}
+
+.el-card:hover {
+  box-shadow: var(--shadow-md);
+}
+
+.el-card__header {
+  border-bottom: 1px solid var(--color-bg-secondary);
+  padding: var(--spacing-md) var(--spacing-lg);
+  font-weight: 600;
+  font-size: 16px;
+}
+
+/* 输入框风格 - 灰色背景，聚焦加深 */
+.el-input__wrapper {
+  background-color: #f5f5f7 !important;
+  box-shadow: none !important;
+  border-radius: 8px !important;
+  padding: 4px 12px;
+}
+
+.el-input__wrapper.is-focus {
+  background-color: #fff !important;
+  box-shadow: 0 0 0 2px var(--color-accent) !important; /* 聚焦时使用蓝色高亮 */
+}
+
+/* 表格风格 - 极简线条 */
+.el-table {
+  --el-table-header-bg-color: #fff;
+  --el-table-row-hover-bg-color: #f5f5f7;
+}
+
+.el-table th.el-table__cell {
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.el-table td.el-table__cell {
+  border-bottom: 1px solid var(--color-bg-secondary);
+}

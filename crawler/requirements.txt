@@ -1,0 +1,4 @@
+Scrapy==2.11.2
+pymongo==4.10.1
+scrapy-playwright==0.0.36
+playwright==1.52.0

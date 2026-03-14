@@ -1,0 +1,374 @@
+[1mdiff --git a/frontend/src/api/index.js b/frontend/src/views/Dashboard.vue[m
+[1mindex ff6418b..bb08cc6 100644[m
+[1m--- a/frontend/src/api/index.js[m
+[1m+++ b/frontend/src/views/Dashboard.vue[m
+[36m@@ -1,41 +1,365 @@[m
+[31m-import axios from "axios"[m
+[32m+[m[32m<template>[m
+[32m+[m[32m  <div class="dashboard-container">[m
+[32m+[m[32m    <div class="section-header">[m
+[32m+[m[32m      <h2 class="section-title">概览</h2>[m
+[32m+[m[32m      <p class="section-subtitle">查看职位统计与趋势分析</p>[m
+[32m+[m[32m    </div>[m
+ [m
+[31m-const api = axios.create({[m
+[31m-  baseURL: "/api"[m
+[31m-})[m
+[32m+[m[32m    <el-row :gutter="24">[m
+[32m+[m[32m      <el-col :xs="24" :lg="14">[m
+[32m+[m[32m        <el-card class="dashboard-card" shadow="hover">[m
+[32m+[m[32m          <template #header>[m
+[32m+[m[32m            <div class="card-header">[m
+[32m+[m[32m              <span>薪资分布</span>[m
+[32m+[m[32m              <el-tag size="small" type="info" effect="plain">TOP 10</el-tag>[m
+[32m+[m[32m            </div>[m
+[32m+[m[32m          </template>[m
+[32m+[m[32m          <el-table :data="salary" height="360" style="width: 100%" :header-cell-style="{ background: 'transparent' }">[m
+[32m+[m[32m            <el-table-column prop="city" label="城市" width="120" />[m
+[32m+[m[32m            <el-table-column prop="job_count" label="职位数" align="right" />[m
+[32m+[m[32m            <el-table-column prop="avg_salary" label="平均薪资" align="right">[m
+[32m+[m[32m              <template #default="{ row }">[m
+[32m+[m[32m                <span class="salary-text">¥{{ row.avg_salary?.toLocaleString() }}</span>[m
+[32m+[m[32m              </template>[m
+[32m+[m[32m            </el-table-column>[m
+[32m+[m[32m          </el-table>[m
+[32m+[m[32m        </el-card>[m
+[32m+[m[32m      </el-col>[m
+[32m+[m[41m      [m
+[32m+[m[32m      <el-col :xs="24" :lg="10">[m
+[32m+[m[32m        <el-card class="dashboard-card" shadow="hover">[m
+[32m+[m[32m          <template #header>[m
+[32m+[m[32m            <div class="card-header">[m
+[32m+[m[32m              <span>新建任务</span>[m
+[32m+[m[32m            </div>[m
+[32m+[m[32m          </template>[m
+[32m+[m[32m          <el-form :model="form" label-position="top" class="task-form">[m
+[32m+[m[32m            <el-form-item label="任务名称">[m
+[32m+[m[32m              <el-input v-model="form.task_name" placeholder="输入任务名称" />[m
+[32m+[m[32m            </el-form-item>[m
+[32m+[m[32m            <el-row :gutter="12">[m
+[32m+[m[32m              <el-col :span="12">[m
+[32m+[m[32m                <el-form-item label="关键词">[m
+[32m+[m[32m                  <el-input v-model="form.keyword" placeholder="例如：Python" />[m
+[32m+[m[32m                </el-form-item>[m
+[32m+[m[32m              </el-col>[m
+[32m+[m[32m              <el-col :span="12">[m
+[32m+[m[32m                <el-form-item label="城市">[m
+[32m+[m[32m                  <el-input v-model="form.city" placeholder="例如：北京" />[m
+[32m+[m[32m                </el-form-item>[m
+[32m+[m[32m              </el-col>[m
+[32m+[m[32m            </el-row>[m
+[32m+[m[32m            <el-form-item label="采集页数">[m
+[32m+[m[32m              <el-input-number v-model="form.max_pages" :min="1" :max="20" style="width: 100%" />[m
+[32m+[m[32m            </el-form-item>[m
+[32m+[m[32m            <div class="form-actions">[m
+[32m+[m[32m              <el-button type="primary" @click="createTask" :loading="loading" class="submit-btn">[m
+[32m+[m[32m                开始采集[m
+[32m+[m[32m              </el-button>[m
+[32m+[m[32m            </div>[m
+[32m+[m[32m          </el-form>[m
+[32m+[m[32m        </el-card>[m
+[32m+[m[32m      </el-col>[m
+[32m+[m[32m    </el-row>[m
+ [m
+[31m-api.interceptors.request.use((config) => {[m
+[31m-  const token = localStorage.getItem("accessToken")[m
+[31m-  if (token) config.headers.Authorization = `Bearer ${token}`[m
+[31m-  return config[m
+[31m-})[m
+[32m+[m[32m    <el-row class="trend-section">[m
+[32m+[m[32m      <el-col :span="24">[m
+[32m+[m[32m        <el-card class="dashboard-card" shadow="hover">[m
+[32m+[m[32m          <template #header>[m
+[32m+[m[32m            <div class="card-header">[m
+[32m+[m[32m              <span>采集任务状态</span>[m
+[32m+[m[32m            </div>[m
+[32m+[m[32m          </template>[m
+[32m+[m[32m          <el-empty v-if="tasks.length === 0" description="暂无任务记录" />[m
+[32m+[m[32m          <el-table v-else :data="tasks" style="width: 100%" :header-cell-style="{ background: 'transparent' }">[m
+[32m+[m[32m            <el-table-column prop="task_name" label="任务名称" min-width="180" />[m
+[32m+[m[32m            <el-table-column prop="keyword" label="关键词" width="120" />[m
+[32m+[m[32m            <el-table-column prop="city" label="城市" width="100" />[m
+[32m+[m[32m            <el-table-column label="状态" width="120">[m
+[32m+[m[32m              <template #default="{ row }">[m
+[32m+[m[32m                <el-tag :type="statusTagType(row.status)" effect="plain">{{ statusLabel(row.status) }}</el-tag>[m
+[32m+[m[32m              </template>[m
+[32m+[m[32m            </el-table-column>[m
+[32m+[m[32m            <el-table-column prop="total_count" label="总数" width="90" align="right" />[m
+[32m+[m[32m            <el-table-column prop="success_count" label="成功" width="90" align="right" />[m
+[32m+[m[32m            <el-table-column prop="fail_count" label="失败" width="90" align="right" />[m
+[32m+[m[32m          </el-table>[m
+[32m+[m[32m        </el-card>[m
+[32m+[m[32m      </el-col>[m
+[32m+[m[32m    </el-row>[m
+ [m
+[31m-export function loginApi(data) {[m
+[31m-  return api.post("/auth/login", data)[m
+[32m+[m[32m    <el-row class="trend-section">[m
+[32m+[m[32m      <el-col :span="24">[m
+[32m+[m[32m        <el-card class="dashboard-card" shadow="hover">[m
+[32m+[m[32m          <template #header>[m
+[32m+[m[32m            <div class="card-header">[m
+[32m+[m[32m              <span>发布趋势</span>[m
+[32m+[m[32m            </div>[m
+[32m+[m[32m          </template>[m
+[32m+[m[32m          <div class="chart-container">[m
+[32m+[m[32m            <v-chart :option="trendOption" autoresize />[m
+[32m+[m[32m          </div>[m
+[32m+[m[32m        </el-card>[m
+[32m+[m[32m      </el-col>[m
+[32m+[m[32m    </el-row>[m
+[32m+[m[32m  </div>[m
+[32m+[m[32m</template>[m
+[32m+[m
+[32m+[m[32m<script setup>[m
+[32m+[m[32mimport { ref, onMounted, onUnmounted, computed } from "vue"[m
+[32m+[m[32mimport { ElMessage } from "element-plus"[m
+[32m+[m[32mimport VChart from "vue-echarts"[m
+[32m+[m[32mimport { use } from "echarts/core"[m
+[32m+[m[32mimport { CanvasRenderer } from "echarts/renderers"[m
+[32m+[m[32mimport { LineChart } from "echarts/charts"[m
+[32m+[m[32mimport { GridComponent, TooltipComponent, LegendComponent } from "echarts/components"[m
+[32m+[m[32mimport { fetchSalaryStats, fetchTrendStats, createCrawlTask, fetchCrawlTasks } from "../api"[m
+[32m+[m
+[32m+[m[32muse([CanvasRenderer, LineChart, GridComponent, TooltipComponent, LegendComponent])[m
+[32m+[m
+[32m+[m[32mconst salary = ref([])[m
+[32m+[m[32mconst trend = ref([])[m
+[32m+[m[32mconst tasks = ref([])[m
+[32m+[m[32mconst loading = ref(false)[m
+[32m+[m[32mconst form = ref({ task_name: "Python 职位采集", keyword: "Python", city: "北京", max_pages: 5 })[m
+[32m+[m[32mlet taskTimer = null[m
+[32m+[m
+[32m+[m[32mconst trendOption = computed(() => ({[m
+[32m+[m[32m  color: ["#000000"],[m
+[32m+[m[32m  tooltip: {[m
+[32m+[m[32m    trigger: "axis",[m
+[32m+[m[32m    backgroundColor: "rgba(255, 255, 255, 0.9)",[m
+[32m+[m[32m    borderColor: "#e5e5ea",[m
+[32m+[m[32m    textStyle: { color: "#1d1d1f" },[m
+[32m+[m[32m    extraCssText: "box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1); border-radius: 8px;"[m
+[32m+[m[32m  },[m
+[32m+[m[32m  grid: { left: 20, right: 20, top: 20, bottom: 20, containLabel: true },[m
+[32m+[m[32m  xAxis: {[m
+[32m+[m[32m    type: "category",[m
+[32m+[m[32m    data: trend.value.map((x) => x.day || ""),[m
+[32m+[m[32m    axisLine: { show: false },[m
+[32m+[m[32m    axisTick: { show: false },[m
+[32m+[m[32m    axisLabel: { color: "#86868b", fontSize: 12, margin: 16 }[m
+[32m+[m[32m  },[m
+[32m+[m[32m  yAxis: {[m
+[32m+[m[32m    type: "value",[m
+[32m+[m[32m    splitLine: { lineStyle: { color: "#f5f5f7" } },[m
+[32m+[m[32m    axisLabel: { color: "#86868b", fontSize: 12 }[m
+[32m+[m[32m  },[m
+[32m+[m[32m  series: [{[m
+[32m+[m[32m    name: "职位数",[m
+[32m+[m[32m    type: "line",[m
+[32m+[m[32m    smooth: true,[m
+[32m+[m[32m    showSymbol: false,[m
+[32m+[m[32m    symbolSize: 8,[m
+[32m+[m[32m    itemStyle: { color: "#000" },[m
+[32m+[m[32m    lineStyle: { width: 2 },[m
+[32m+[m[32m    areaStyle: {[m
+[32m+[m[32m      color: {[m
+[32m+[m[32m        type: "linear",[m
+[32m+[m[32m        x: 0, y: 0, x2: 0, y2: 1,[m
+[32m+[m[32m        colorStops: [[m
+[32m+[m[32m          { offset: 0, color: "rgba(0, 0, 0, 0.1)" },[m
+[32m+[m[32m          { offset: 1, color: "rgba(0, 0, 0, 0)" }[m
+[32m+[m[32m        ][m
+[32m+[m[32m      }[m
+[32m+[m[32m    },[m
+[32m+[m[32m    data: trend.value.map((x) => x.job_count || 0)[m
+[32m+[m[32m  }][m
+[32m+[m[32m}))[m
+[32m+[m
+[32m+[m[32masync function load() {[m
+[32m+[m[32m  try {[m
+[32m+[m[32m    const [salaryResp, trendResp, taskResp] = await Promise.all([fetchSalaryStats(), fetchTrendStats(), fetchCrawlTasks()])[m
+[32m+[m[32m    salary.value = salaryResp.data.data || [][m
+[32m+[m[32m    trend.value = trendResp.data.data || [][m
+[32m+[m[32m    tasks.value = taskResp.data.data || [][m
+[32m+[m[32m    syncTaskPolling()[m
+[32m+[m[32m  } catch (e) {[m
+[32m+[m[32m    console.error(e)[m
+[32m+[m[32m  }[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32mfunction statusLabel(status) {[m
+[32m+[m[32m  if (status === "pending") return "排队中"[m
+[32m+[m[32m  if (status === "running") return "采集中"[m
+[32m+[m[32m  if (status === "success") return "已完成"[m
+[32m+[m[32m  if (status === "failed") return "失败"[m
+[32m+[m[32m  return "未知"[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32mfunction statusTagType(status) {[m
+[32m+[m[32m  if (status === "success") return "success"[m
+[32m+[m[32m  if (status === "failed") return "danger"[m
+[32m+[m[32m  if (status === "running") return "warning"[m
+[32m+[m[32m  return "info"[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32mfunction stopTaskPolling() {[m
+[32m+[m[32m  if (taskTimer) {[m
+[32m+[m[32m    clearInterval(taskTimer)[m
+[32m+[m[32m    taskTimer = null[m
+[32m+[m[32m  }[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32mfunction syncTaskPolling() {[m
+[32m+[m[32m  const hasRunningTask = tasks.value.some((task) => task.status === "pending" || task.status === "running")[m
+[32m+[m[32m  if (!hasRunningTask) {[m
+[32m+[m[32m    stopTaskPolling()[m
+[32m+[m[32m    return[m
+[32m+[m[32m  }[m
+[32m+[m[32m  if (!taskTimer) {[m
+[32m+[m[32m    taskTimer = setInterval(loadTasks, 4000)[m
+[32m+[m[32m  }[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32masync function loadTasks() {[m
+[32m+[m[32m  try {[m
+[32m+[m[32m    const taskResp = await fetchCrawlTasks()[m
+[32m+[m[32m    tasks.value = taskResp.data.data || [][m
+[32m+[m[32m    syncTaskPolling()[m
+[32m+[m[32m  } catch (e) {[m
+[32m+[m[32m    stopTaskPolling()[m
+[32m+[m[32m  }[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32masync function createTask() {[m
+[32m+[m[32m  if (!form.value.task_name) return[m
+[32m+[m[32m  loading.value = true[m
+[32m+[m[32m  try {[m
+[32m+[m[32m    const resp = await createCrawlTask(form.value)[m
+[32m+[m[32m    tasks.value = [resp.data.data, ...tasks.value][m
+[32m+[m[32m    syncTaskPolling()[m
+[32m+[m[32m    ElMessage.success("已创建采集任务")[m
+[32m+[m[32m    await load()[m
+[32m+[m[32m  } catch (e) {[m
+[32m+[m[32m    ElMessage.error(e.response?.data?.message || "创建失败")[m
+[32m+[m[32m  } finally {[m
+[32m+[m[32m    loading.value = false[m
+[32m+[m[32m  }[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32monMounted(load)[m
+[32m+[m[32monUnmounted(stopTaskPolling)[m
+[32m+[m[32m</script>[m
+[32m+[m
+[32m+[m[32m<style scoped>[m
+[32m+[m[32m.dashboard-container {[m
+[32m+[m[32m  max-width: 1200px;[m
+[32m+[m[32m  margin: 0 auto;[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32m.section-header {[m
+[32m+[m[32m  margin-bottom: 32px;[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32m.section-title {[m
+[32m+[m[32m  font-size: 28px;[m
+[32m+[m[32m  font-weight: 600;[m
+[32m+[m[32m  margin: 0 0 8px;[m
+[32m+[m[32m  letter-spacing: -0.5px;[m
+ }[m
+ [m
+[31m-export function registerApi(data) {[m
+[31m-  return api.post("/auth/register", data)[m
+[32m+[m[32m.section-subtitle {[m
+[32m+[m[32m  color: var(--color-text-secondary);[m
+[32m+[m[32m  font-size: 15px;[m
+[32m+[m[32m  margin: 0;[m
+ }[m
+ [m
+[31m-export function fetchJobs(params) {[m
+[31m-  return api.get("/jobs", { params })[m
+[32m+[m[32m.dashboard-card {[m
+[32m+[m[32m  height: 100%;[m
+[32m+[m[32m  border-radius: 16px;[m
+[32m+[m[32m  border: 1px solid rgba(0, 0, 0, 0.05);[m
+[32m+[m[32m  background: #fff;[m
+[32m+[m[32m  overflow: hidden;[m
+ }[m
+ [m
+[31m-export function fetchSalaryStats() {[m
+[31m-  return api.get("/statistics/salary")[m
+[32m+[m[32m.card-header {[m
+[32m+[m[32m  display: flex;[m
+[32m+[m[32m  justify-content: space-between;[m
+[32m+[m[32m  align-items: center;[m
+ }[m
+ [m
+[31m-export function fetchTrendStats() {[m
+[31m-  return api.get("/statistics/trend")[m
+[32m+[m[32m.salary-text {[m
+[32m+[m[32m  font-weight: 600;[m
+[32m+[m[32m  font-variant-numeric: tabular-nums;[m
+ }[m
+ [m
+[31m-export function createCrawlTask(data) {[m
+[31m-  return api.post("/crawl/tasks", data)[m
+[32m+[m[32m.task-form {[m
+[32m+[m[32m  padding: 8px 0;[m
+ }[m
+ [m
+[31m-export function fetchCrawlTasks() {[m
+[31m-  return api.get("/crawl/tasks")[m
+[32m+[m[32m.form-actions {[m
+[32m+[m[32m  margin-top: 32px;[m
+ }[m
+ [m
+[31m-export default api[m
+[32m+[m[32m.submit-btn {[m
+[32m+[m[32m  width: 100%;[m
+[32m+[m[32m  height: 40px;[m
+[32m+[m[32m  border-radius: 8px;[m
+[32m+[m[32m  font-weight: 500;[m
+[32m+[m[32m  background: #000;[m
+[32m+[m[32m  border-color: #000;[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32m.submit-btn:hover {[m
+[32m+[m[32m  background: #333;[m
+[32m+[m[32m  border-color: #333;[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32m.trend-section {[m
+[32m+[m[32m  margin-top: 24px;[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32m.chart-container {[m
+[32m+[m[32m  height: 360px;[m
+[32m+[m[32m  width: 100%;[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32m:deep(.el-card__header) {[m
+[32m+[m[32m  padding: 20px 24px;[m
+[32m+[m[32m  border-bottom: 1px solid var(--color-bg-secondary);[m
+[32m+[m[32m  font-size: 16px;[m
+[32m+[m[32m  font-weight: 600;[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32m:deep(.el-card__body) {[m
+[32m+[m[32m  padding: 24px;[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32m:deep(.el-table) {[m
+[32m+[m[32m  --el-table-border-color: transparent;[m
+[32m+[m[32m  --el-table-header-bg-color: transparent;[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32m:deep(.el-table th.el-table__cell) {[m
+[32m+[m[32m  font-weight: 500;[m
+[32m+[m[32m  color: var(--color-text-secondary);[m
+[32m+[m[32m  font-size: 13px;[m
+[32m+[m[32m  border-bottom: 1px solid var(--color-bg-secondary);[m
+[32m+[m[32m}[m
+[32m+[m
+[32m+[m[32m:deep(.el-table td.el-table__cell) {[m
+[32m+[m[32m  border-bottom: 1px solid var(--color-bg-secondary);[m
+[32m+[m[32m  padding: 12px 0;[m
+[32m+[m[32m
