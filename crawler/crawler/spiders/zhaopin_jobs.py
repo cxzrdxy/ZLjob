@@ -1,10 +1,8 @@
-import json
 import os
 import random
 import re
 from datetime import datetime, timezone
-from urllib.parse import quote_plus, urljoin
-from urllib.parse import urlparse
+from urllib.parse import quote_plus
 
 import scrapy
 from scrapy.exceptions import CloseSpider
@@ -117,105 +115,80 @@ class ZhaopinJobsSpider(scrapy.Spider):
             await self._save_storage_state(page)
             self._set_step("load_list")
             await page.wait_for_timeout(1200)
-            detail_urls = self._collect_detail_urls_from_state(response.text, response.url)
-            if not detail_urls:
-                self._set_step("scrolling")
-                detail_urls = await self._collect_detail_urls(page, response.url)
-            for url in detail_urls:
-                yield scrapy.Request(
-                    url=url,
-                    callback=self.parse_detail,
-                    errback=self.errback_close_page,
-                    meta=self._build_playwright_meta(),
-                )
-        finally:
-            await page.close()
-
-    async def parse_detail(self, response):
-        page = response.meta["playwright_page"]
-        self._set_step("parse_detail")
-        try:
-            await page.wait_for_timeout(800)
-            if not await self._is_logged_in(page):
-                self._set_step("session_expired")
-                raise CloseSpider("session_expired")
-            title = self._extract_first(response, "h1::text, .job-name::text, .position-name::text")
-            company = self._extract_first(
-                response,
-                ".company-name::text, .company-title a::text, .company-info__name::text, .company__title::text, .company__info h4::text, .company-info__top h3::text",
-            )
-            salary = self._extract_first(
-                response,
-                ".salary::text, .job-salary::text, .position-salary::text, .summary-plane__salary::text, .summary-plane__salary span::text",
-            )
-            summary_info = self._extract_text_list(
-                response,
-                ".summary-plane__info li::text, .summary-plane__info li a::text, .summary-plane__info li span::text, .position-label li::text, .job-require li::text",
-            )
-            inferred_location, inferred_experience, inferred_education = self._infer_job_meta(summary_info)
-            location = self._extract_first(
-                response,
-                ".job-address__content-text::text, .job-address::text, .job-area::text, .summary-plane__info li:nth-child(1)::text, .summary-plane__info li:nth-child(1) a::text, .summary-plane__info li:nth-child(1) span::text",
-            )
-            experience = self._extract_first(
-                response,
-                ".job-require li:nth-child(1)::text, .position-label li:nth-child(2)::text, .summary-plane__info li:nth-child(2)::text, .summary-plane__info li:nth-child(3)::text, .summary-plane__info li::text",
-            )
-            education = self._extract_first(
-                response,
-                ".job-require li:nth-child(2)::text, .position-label li:nth-child(3)::text, .summary-plane__info li:nth-child(3)::text, .summary-plane__info li:nth-child(4)::text, .summary-plane__info li::text",
-            )
-            if not location:
-                location = inferred_location
-            if not self._is_experience_text(experience):
-                experience = inferred_experience
-            if not self._is_education_text(education):
-                education = inferred_education
-            description_blocks = self._extract_text_list(
-                response,
-                ".job-detail__content::text, .describtion__detail-content::text, .job-desc::text"
-            )
-            if not description_blocks:
-                description_blocks = self._extract_text_list(response, "body *::text")[:200]
-            description = self._join_texts(description_blocks, 6000)
-            tags = [
-                t
-                for t in self._extract_text_list(
-                    response,
-                    ".job-tags span::text, .position-label li::text, .highlights span::text, .describtion__skills-item::text",
-                )
-                if not self._is_meta_noise_tag(t)
-            ]
-            welfare = self._extract_text_list(
-                response,
-                ".welfare-tab-box span::text, .company-welfare li::text, .welfare__item::text, .job-welfare-tag span::text",
-            )
-            publish_time = self._extract_first(
-                response,
-                ".time::text, .job-publish-time::text, .position-publish-time::text, .summary-plane__time::text",
-            )
-            publish_time = self._normalize_publish_time(publish_time)
-            if not title and not company and not salary:
-                return
-            yield JobItem(
-                job_id=response.url,
-                crawl_task_id=self.crawl_task_id,
-                title=title,
-                company=company,
-                salary=salary,
-                location=location,
-                experience=experience,
-                education=education,
-                description=description,
-                tags=tags,
-                welfare=welfare,
-                publish_time=publish_time,
-                source_url=response.url,
-                latest_step=self._step,
-                crawled_at=datetime.now(timezone.utc).isoformat(),
-                source_site="zhaopin",
-                error_message="",
-            )
+            
+            # 直接从列表页提取职位数据
+            job_items = response.css('.joblist-box__item')
+            self.logger.info(f"Found {len(job_items)} job items on list page")
+            
+            for job in job_items:
+                try:
+                    # 提取基本信息
+                    title = job.css('.jobinfo__name::text').get('').strip()
+                    salary = job.css('.jobinfo__salary::text').get('').strip()
+                    company = job.css('.companyinfo__name::text').get('').strip()
+                    
+                    # 从 other-info 提取地点、经验、学历
+                    # 第一个 item 是地点（包含 location.png 图片）
+                    location = job.css('.jobinfo__other-info-item:first-child span::text').get('').strip()
+                    # 第二个 item 是经验
+                    experience = job.css('.jobinfo__other-info-item:nth-child(2)::text').get('').strip()
+                    # 第三个 item 是学历
+                    education = job.css('.jobinfo__other-info-item:nth-child(3)::text').get('').strip()
+                    
+                    # 提取标签
+                    tags = job.css('.joblist-box__item-tag::text').getall()
+                    tags = [tag.strip() for tag in tags if tag.strip()]
+                    
+                    # 提取详情链接
+                    detail_url = job.css('.jobinfo__name::attr(href)').get('')
+                    if detail_url and not detail_url.startswith('http'):
+                        detail_url = 'https:' + detail_url if detail_url.startswith('//') else response.urljoin(detail_url)
+                    
+                    # 提取公司标签
+                    company_tags = job.css('.companyinfo__tag .joblist-box__item-tag::text').getall()
+                    welfare = [tag.strip() for tag in company_tags if tag.strip()]
+                    
+                    # 使用当前时间作为发布时间（列表页没有发布时间）
+                    publish_time = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+                    
+                    # 构建职位描述（从已有信息组合）
+                    description_parts = [
+                        f"职位：{title}",
+                        f"薪资：{salary}",
+                        f"公司：{company}",
+                        f"地点：{location}",
+                        f"经验：{experience}",
+                        f"学历：{education}",
+                    ]
+                    if tags:
+                        description_parts.append(f"标签：{', '.join(tags)}")
+                    description = '\n'.join(description_parts)
+                    
+                    if title and company:
+                        yield JobItem(
+                            job_id=detail_url or response.url,
+                            crawl_task_id=self.crawl_task_id,
+                            title=title,
+                            company=company,
+                            salary=salary,
+                            location=location,
+                            experience=experience,
+                            education=education,
+                            description=description,
+                            tags=tags,
+                            welfare=welfare,
+                            publish_time=publish_time,
+                            source_url=detail_url or response.url,
+                            latest_step="list_page_extract",
+                            crawled_at=datetime.now(timezone.utc).isoformat(),
+                            source_site="zhaopin",
+                            error_message="",
+                        )
+                        self.logger.info(f"Extracted job: {title} @ {company}")
+                except Exception as e:
+                    self.logger.error(f"Error extracting job item: {e}")
+                    continue
+                    
         finally:
             await page.close()
 
@@ -272,112 +245,6 @@ class ZhaopinJobsSpider(scrapy.Spider):
             os.makedirs(directory, exist_ok=True)
         await page.context.storage_state(path=self.storage_state_path)
 
-    def _collect_detail_urls_from_state(self, text, base_url):
-        data = self._extract_initial_data(text)
-        if not data:
-            return []
-        urls = set()
-        for url in self._walk_for_urls(data):
-            normalized = self._normalize_url(url, base_url)
-            if normalized and self._is_job_detail_url(normalized):
-                urls.add(normalized)
-        return sorted(urls)
-
-    def _extract_initial_data(self, text):
-        if not text:
-            return None
-        marker = "window.__INITIAL_DATA__"
-        idx = text.find(marker)
-        if idx < 0:
-            return None
-        start = text.find("{", idx)
-        if start < 0:
-            return None
-        depth = 0
-        for i in range(start, len(text)):
-            ch = text[i]
-            if ch == "{":
-                depth += 1
-            elif ch == "}":
-                depth -= 1
-                if depth == 0:
-                    raw = text[start : i + 1]
-                    try:
-                        return json.loads(raw)
-                    except Exception:
-                        return None
-        return None
-
-    def _walk_for_urls(self, node):
-        if isinstance(node, dict):
-            for key, value in node.items():
-                if isinstance(value, str):
-                    is_url_key = isinstance(key, str) and "url" in key.lower()
-                    if is_url_key:
-                        yield value
-                    elif "zhaopin.com" in value and "javascript:" not in value:
-                        yield value
-                if isinstance(value, (dict, list)):
-                    yield from self._walk_for_urls(value)
-        elif isinstance(node, list):
-            for item in node:
-                yield from self._walk_for_urls(item)
-
-    def _normalize_url(self, url, base_url):
-        if not url:
-            return ""
-        value = str(url).strip()
-        if "javascript:" in value:
-            return ""
-        if value.startswith("//"):
-            value = f"https:{value}"
-        if value.startswith("http://") or value.startswith("https://"):
-            normalized = value
-        else:
-            normalized = urljoin(base_url, value)
-        if not self._is_zhaopin_url(normalized):
-            return ""
-        return normalized.split("#")[0]
-
-    async def _collect_detail_urls(self, page, base_url):
-        urls = set()
-        no_growth = 0
-        previous_count = 0
-        selectors = [
-            "a[href*='jobs.zhaopin.com']",
-            "a[href*='/job/']",
-            "a[href*='position']",
-            "a[href*='sou.zhaopin.com/jobs']",
-            "a[href*='xiaoyuan.zhaopin.com']",
-        ]
-        for _ in range(self.max_scroll_rounds):
-            try:
-                for selector in selectors:
-                    links = await page.eval_on_selector_all(
-                        selector,
-                        "elements => elements.map(el => el.href).filter(Boolean)",
-                    )
-                    urls.update(self._normalize_detail_urls(links, base_url))
-                all_links = await page.eval_on_selector_all(
-                    "a[href]",
-                    "elements => elements.map(el => el.href).filter(Boolean)",
-                )
-                urls.update(self._normalize_detail_urls(all_links, base_url))
-                current_count = len(urls)
-                if current_count <= previous_count:
-                    no_growth += 1
-                else:
-                    no_growth = 0
-                    previous_count = current_count
-                if no_growth >= self.no_growth_limit:
-                    break
-                await page.evaluate("window.scrollBy(0, Math.max(window.innerHeight * 0.9, 700))")
-                await page.wait_for_timeout(random.randint(self.scroll_min_ms, self.scroll_max_ms))
-            except Exception as exc:
-                self.logger.warning("collect_detail_urls_interrupted=%s", exc)
-                break
-        return sorted(urls)
-
     async def errback_close_page(self, failure):
         page = failure.request.meta.get("playwright_page")
         if page:
@@ -389,17 +256,6 @@ class ZhaopinJobsSpider(scrapy.Spider):
             str(failure.value),
         )
 
-    def _normalize_detail_urls(self, links, base_url):
-        normalized = set()
-        for link in links:
-            normalized_link = self._normalize_url(link, base_url)
-            if not normalized_link:
-                continue
-            if not self._is_job_detail_url(normalized_link):
-                continue
-            normalized.add(normalized_link)
-        return normalized
-
     def _build_playwright_meta(self, context_kwargs=None):
         meta = {
             "playwright": True,
@@ -409,28 +265,6 @@ class ZhaopinJobsSpider(scrapy.Spider):
         if context_kwargs:
             meta["playwright_context_kwargs"] = context_kwargs
         return meta
-
-    def _is_zhaopin_url(self, url):
-        try:
-            hostname = (urlparse(url).hostname or "").lower()
-        except Exception:
-            return False
-        return hostname == "zhaopin.com" or hostname.endswith(".zhaopin.com")
-
-    def _is_job_detail_url(self, url):
-        lower = (url or "").lower()
-        return any(
-            token in lower
-            for token in (
-                "/job/",
-                "jobs.zhaopin.com",
-                "sou.zhaopin.com/jobs",
-                "positiondetail",
-                "jobdetail",
-                "/jobs/detail",
-                "/zw/",
-            )
-        )
 
     def _extract_first(self, response, selector):
         value = response.css(selector).get(default="")

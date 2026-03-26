@@ -23,7 +23,7 @@ class JobListView(generics.ListAPIView):
         salary_min = self.request.query_params.get("salary_min")
         salary_max = self.request.query_params.get("salary_max")
         if city:
-            queryset = queryset.filter(city=city)
+            queryset = queryset.filter(city__icontains=city)
         if keyword:
             queryset = queryset.filter(title__icontains=keyword)
         if industry:
