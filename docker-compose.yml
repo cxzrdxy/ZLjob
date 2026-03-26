@@ -11,6 +11,11 @@ services:
       - "15432:5432"
     volumes:
       - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   mongo:
     image: mongo:7
@@ -23,6 +28,11 @@ services:
     image: redis:7
     ports:
       - "16379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
 
   backend:
     build:
@@ -33,14 +43,22 @@ services:
     ports:
       - "18000:8000"
     depends_on:
-      - postgres
-      - redis
-      - mongo
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      mongo:
+        condition: service_started
     volumes:
       - ./backend:/app/backend
       - ./crawler:/app/crawler
     command: python manage.py runserver 0.0.0.0:8000
     working_dir: /app/backend
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket;s=socket.create_connection(('127.0.0.1',8000),2);s.close()"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
 
   celery_worker:
     build:
@@ -49,8 +67,10 @@ services:
     env_file:
       - .env
     depends_on:
-      - backend
-      - redis
+      backend:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     volumes:
       - ./backend:/app/backend
       - ./crawler:/app/crawler
@@ -71,7 +91,8 @@ services:
     command: npm run dev -- --host 0.0.0.0
     working_dir: /app/frontend
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
 
   crawler:
     build:

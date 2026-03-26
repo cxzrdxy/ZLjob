@@ -1,8 +1,10 @@
 import json
 import os
 import random
+import re
 from datetime import datetime, timezone
 from urllib.parse import quote_plus, urljoin
+from urllib.parse import urlparse
 
 import scrapy
 from scrapy.exceptions import CloseSpider
@@ -42,7 +44,6 @@ class ZhaopinJobsSpider(scrapy.Spider):
             os.getenv("ZHAOPIN_STORAGE_STATE", "").strip()
             or os.getenv("BOSS_STORAGE_STATE", "").strip()
         )
-        self.user_data_dir = os.getenv("ZHAOPIN_USER_DATA_DIR", "").strip()
         self._step = "boot_context"
         self._playwright_context = (
             f"zhaopin-{self.crawl_task_id}" if self.crawl_task_id else "zhaopin-default"
@@ -60,6 +61,11 @@ class ZhaopinJobsSpider(scrapy.Spider):
             ".page-header__menu__item",
             ".page-header__logo",
             "a[href*='xiaoyuan.zhaopin.com']",
+            ".home-header__c-login",
+            ".c-login__top__name",
+            ".home-header__user-name",
+            ".home-header__avatar",
+            "a[href*='//i.zhaopin.com']",
         ]
         self.login_selectors = [
             "a[href*='login']",
@@ -72,10 +78,15 @@ class ZhaopinJobsSpider(scrapy.Spider):
             ".zppp-sms__send",
             ".nc-container",
             "input[id^='input_']",
+            ".home-search__c-no-login",
+            ".home-header__a-login",
+            ".home-header__b-login",
         ]
-        self.start_urls = ["https://landing.zhaopin.com/"]
-        self.start_urls.append("https://xiaoyuan.zhaopin.com/search/index")
-        self.start_urls.extend([self._list_url(page) for page in range(1, self.max_pages + 1)])
+        self.start_urls = [
+            "https://landing.zhaopin.com/",
+            "https://xiaoyuan.zhaopin.com/search/index",
+            *[self._list_url(page) for page in range(1, self.max_pages + 1)],
+        ]
 
     def _list_url(self, page):
         kw = quote_plus(self.keyword.strip())
@@ -86,23 +97,14 @@ class ZhaopinJobsSpider(scrapy.Spider):
 
     def start_requests(self):
         context_kwargs = {}
-        if self.user_data_dir:
-            context_kwargs["user_data_dir"] = self.user_data_dir
         if self.storage_state_path and os.path.exists(self.storage_state_path):
             context_kwargs["storage_state"] = self.storage_state_path
         for url in self.start_urls:
-            meta = {
-                "playwright": True,
-                "playwright_include_page": True,
-                "playwright_context": self._playwright_context,
-            }
-            if context_kwargs:
-                meta["playwright_context_kwargs"] = context_kwargs
             yield scrapy.Request(
                 url=url,
                 callback=self.parse_list,
                 errback=self.errback_close_page,
-                meta=meta,
+                meta=self._build_playwright_meta(context_kwargs),
             )
 
     async def parse_list(self, response):
@@ -124,11 +126,7 @@ class ZhaopinJobsSpider(scrapy.Spider):
                     url=url,
                     callback=self.parse_detail,
                     errback=self.errback_close_page,
-                    meta={
-                        "playwright": True,
-                        "playwright_include_page": True,
-                        "playwright_context": self._playwright_context,
-                    },
+                    meta=self._build_playwright_meta(),
                 )
         finally:
             await page.close()
@@ -144,48 +142,59 @@ class ZhaopinJobsSpider(scrapy.Spider):
             title = self._extract_first(response, "h1::text, .job-name::text, .position-name::text")
             company = self._extract_first(
                 response,
-                ".company-name::text, .company-title a::text, .company-info__name::text",
+                ".company-name::text, .company-title a::text, .company-info__name::text, .company__title::text, .company__info h4::text, .company-info__top h3::text",
             )
             salary = self._extract_first(
                 response,
-                ".salary::text, .job-salary::text, .position-salary::text",
+                ".salary::text, .job-salary::text, .position-salary::text, .summary-plane__salary::text, .summary-plane__salary span::text",
             )
+            summary_info = self._extract_text_list(
+                response,
+                ".summary-plane__info li::text, .summary-plane__info li a::text, .summary-plane__info li span::text, .position-label li::text, .job-require li::text",
+            )
+            inferred_location, inferred_experience, inferred_education = self._infer_job_meta(summary_info)
             location = self._extract_first(
                 response,
-                ".job-address::text, .position-label li::text, .job-area::text",
+                ".job-address__content-text::text, .job-address::text, .job-area::text, .summary-plane__info li:nth-child(1)::text, .summary-plane__info li:nth-child(1) a::text, .summary-plane__info li:nth-child(1) span::text",
             )
             experience = self._extract_first(
                 response,
-                ".job-require li:nth-child(1)::text, .position-label li:nth-child(2)::text",
+                ".job-require li:nth-child(1)::text, .position-label li:nth-child(2)::text, .summary-plane__info li:nth-child(2)::text, .summary-plane__info li:nth-child(3)::text, .summary-plane__info li::text",
             )
             education = self._extract_first(
                 response,
-                ".job-require li:nth-child(2)::text, .position-label li:nth-child(3)::text",
+                ".job-require li:nth-child(2)::text, .position-label li:nth-child(3)::text, .summary-plane__info li:nth-child(3)::text, .summary-plane__info li:nth-child(4)::text, .summary-plane__info li::text",
             )
-            description_blocks = response.css(
+            if not location:
+                location = inferred_location
+            if not self._is_experience_text(experience):
+                experience = inferred_experience
+            if not self._is_education_text(education):
+                education = inferred_education
+            description_blocks = self._extract_text_list(
+                response,
                 ".job-detail__content::text, .describtion__detail-content::text, .job-desc::text"
-            ).getall()
+            )
             if not description_blocks:
-                description_blocks = response.xpath("//body//text()").getall()[:200]
-            description = " ".join([t.strip() for t in description_blocks if t and t.strip()])[:6000]
+                description_blocks = self._extract_text_list(response, "body *::text")[:200]
+            description = self._join_texts(description_blocks, 6000)
             tags = [
-                t.strip()
-                for t in response.css(
-                    ".job-tags span::text, .position-label li::text, .highlights span::text"
-                ).getall()
-                if t and t.strip()
+                t
+                for t in self._extract_text_list(
+                    response,
+                    ".job-tags span::text, .position-label li::text, .highlights span::text, .describtion__skills-item::text",
+                )
+                if not self._is_meta_noise_tag(t)
             ]
-            welfare = [
-                t.strip()
-                for t in response.css(
-                    ".welfare-tab-box span::text, .company-welfare li::text, .welfare__item::text"
-                ).getall()
-                if t and t.strip()
-            ]
+            welfare = self._extract_text_list(
+                response,
+                ".welfare-tab-box span::text, .company-welfare li::text, .welfare__item::text, .job-welfare-tag span::text",
+            )
             publish_time = self._extract_first(
                 response,
-                ".time::text, .job-publish-time::text, .position-publish-time::text",
+                ".time::text, .job-publish-time::text, .position-publish-time::text, .summary-plane__time::text",
             )
+            publish_time = self._normalize_publish_time(publish_time)
             if not title and not company and not salary:
                 return
             yield JobItem(
@@ -235,12 +244,25 @@ class ZhaopinJobsSpider(scrapy.Spider):
         for selector in self.logged_in_selectors:
             if await page.query_selector(selector):
                 return True
-        has_login_btn = False
+        cookies = await page.context.cookies()
+        cookie_map = {cookie.get("name"): cookie.get("value") for cookie in cookies}
+        if cookie_map.get("at") and cookie_map.get("rt"):
+            return True
+        if cookie_map.get("zp_passport_deepknow_sessionId"):
+            return True
+        has_visible_login_btn = False
         for selector in self.login_selectors:
-            if await page.query_selector(selector):
-                has_login_btn = True
+            element = await page.query_selector(selector)
+            if not element:
+                continue
+            try:
+                if await element.is_visible():
+                    has_visible_login_btn = True
+                    break
+            except Exception:
+                has_visible_login_btn = True
                 break
-        return not has_login_btn
+        return not has_visible_login_btn
 
     async def _save_storage_state(self, page):
         if not self.storage_state_path:
@@ -257,7 +279,7 @@ class ZhaopinJobsSpider(scrapy.Spider):
         urls = set()
         for url in self._walk_for_urls(data):
             normalized = self._normalize_url(url, base_url)
-            if normalized:
+            if normalized and self._is_job_detail_url(normalized):
                 urls.add(normalized)
         return sorted(urls)
 
@@ -290,12 +312,13 @@ class ZhaopinJobsSpider(scrapy.Spider):
         if isinstance(node, dict):
             for key, value in node.items():
                 if isinstance(value, str):
-                    if "zhaopin.com" in value and "javascript:" not in value:
+                    is_url_key = isinstance(key, str) and "url" in key.lower()
+                    if is_url_key:
+                        yield value
+                    elif "zhaopin.com" in value and "javascript:" not in value:
                         yield value
                 if isinstance(value, (dict, list)):
                     yield from self._walk_for_urls(value)
-                if isinstance(key, str) and "url" in key.lower() and isinstance(value, str):
-                    yield value
         elif isinstance(node, list):
             for item in node:
                 yield from self._walk_for_urls(item)
@@ -303,11 +326,18 @@ class ZhaopinJobsSpider(scrapy.Spider):
     def _normalize_url(self, url, base_url):
         if not url:
             return ""
-        if url.startswith("//"):
-            url = f"https:{url}"
-        if url.startswith("http://") or url.startswith("https://"):
-            return url.split("#")[0]
-        return urljoin(base_url, url).split("#")[0]
+        value = str(url).strip()
+        if "javascript:" in value:
+            return ""
+        if value.startswith("//"):
+            value = f"https:{value}"
+        if value.startswith("http://") or value.startswith("https://"):
+            normalized = value
+        else:
+            normalized = urljoin(base_url, value)
+        if not self._is_zhaopin_url(normalized):
+            return ""
+        return normalized.split("#")[0]
 
     async def _collect_detail_urls(self, page, base_url):
         urls = set()
@@ -362,24 +392,157 @@ class ZhaopinJobsSpider(scrapy.Spider):
     def _normalize_detail_urls(self, links, base_url):
         normalized = set()
         for link in links:
-            if not link:
+            normalized_link = self._normalize_url(link, base_url)
+            if not normalized_link:
                 continue
-            if link.startswith("//"):
-                link = f"https:{link}"
-            if not link.startswith("http://") and not link.startswith("https://"):
-                link = urljoin(base_url, link)
-            if "zhaopin.com" not in link:
+            if not self._is_job_detail_url(normalized_link):
                 continue
-            if "javascript:" in link:
-                continue
-            if "/job/" not in link and "jobs.zhaopin.com" not in link and "sou.zhaopin.com/jobs" not in link:
-                continue
-            normalized.add(link.split("#")[0])
+            normalized.add(normalized_link)
         return normalized
+
+    def _build_playwright_meta(self, context_kwargs=None):
+        meta = {
+            "playwright": True,
+            "playwright_include_page": True,
+            "playwright_context": self._playwright_context,
+        }
+        if context_kwargs:
+            meta["playwright_context_kwargs"] = context_kwargs
+        return meta
+
+    def _is_zhaopin_url(self, url):
+        try:
+            hostname = (urlparse(url).hostname or "").lower()
+        except Exception:
+            return False
+        return hostname == "zhaopin.com" or hostname.endswith(".zhaopin.com")
+
+    def _is_job_detail_url(self, url):
+        lower = (url or "").lower()
+        return any(
+            token in lower
+            for token in (
+                "/job/",
+                "jobs.zhaopin.com",
+                "sou.zhaopin.com/jobs",
+                "positiondetail",
+                "jobdetail",
+                "/jobs/detail",
+                "/zw/",
+            )
+        )
 
     def _extract_first(self, response, selector):
         value = response.css(selector).get(default="")
-        return value.strip()
+        return self._clean_text(value)
+
+    def _extract_text_list(self, response, selector):
+        values = response.css(selector).getall()
+        return self._dedupe_texts(values)
+
+    def _dedupe_texts(self, values):
+        results = []
+        seen = set()
+        for value in values:
+            text = self._clean_text(value)
+            if not text or text in seen:
+                continue
+            seen.add(text)
+            results.append(text)
+        return results
+
+    def _join_texts(self, values, max_len=6000):
+        texts = []
+        for value in values:
+            clean_value = self._clean_text(value)
+            if clean_value:
+                texts.append(clean_value)
+        return " ".join(texts)[:max_len]
+
+    def _clean_text(self, text):
+        if text is None:
+            return ""
+        value = str(text).replace("\u3000", " ").replace("\xa0", " ")
+        value = re.sub(r"\s+", " ", value).strip()
+        return value
+
+    def _infer_job_meta(self, infos):
+        location = ""
+        experience = ""
+        education = ""
+        for item in infos:
+            if not experience and self._is_experience_text(item):
+                experience = item
+                continue
+            if not education and self._is_education_text(item):
+                education = item
+                continue
+            if not location and self._is_location_text(item):
+                location = item
+        return location, experience, education
+
+    def _is_experience_text(self, text):
+        value = self._clean_text(text)
+        if not value:
+            return False
+        return bool(
+            re.search(
+                r"(经验不限|无经验|应届|在校|实习|[0-9一二三四五六七八九十]+年|[0-9]+-[0-9]+年|[0-9]+年以上)",
+                value,
+            )
+        )
+
+    def _is_education_text(self, text):
+        value = self._clean_text(text)
+        if not value:
+            return False
+        return any(token in value for token in ("学历不限", "大专", "本科", "硕士", "博士", "中专", "中技", "高中"))
+
+    def _is_salary_text(self, text):
+        value = self._clean_text(text).lower()
+        if not value:
+            return False
+        return bool(
+            re.search(r"(k|万|元/月|元/天|元/年|面议|薪|/月|/天|/年|月薪|年薪|时薪)", value)
+        )
+
+    def _is_publish_time_text(self, text):
+        value = self._clean_text(text)
+        if not value:
+            return False
+        return bool(
+            re.search(r"(更新|发布|刚刚|今天|昨天|[0-9]+小时前|[0-9]+天前|[0-9]+月[0-9]+日)", value)
+        )
+
+    def _is_location_text(self, text):
+        value = self._clean_text(text)
+        if not value:
+            return False
+        if self._is_experience_text(value) or self._is_education_text(value):
+            return False
+        if self._is_salary_text(value) or self._is_publish_time_text(value):
+            return False
+        return bool(
+            re.search(r"(省|市|区|县|路|街道|街|镇|乡|开发区|新区|园区|商圈|地铁|·|-)", value)
+        )
+
+    def _is_meta_noise_tag(self, text):
+        value = self._clean_text(text)
+        if not value:
+            return True
+        return (
+            self._is_experience_text(value)
+            or self._is_education_text(value)
+            or self._is_salary_text(value)
+            or self._is_publish_time_text(value)
+            or self._is_location_text(value)
+        )
+
+    def _normalize_publish_time(self, text):
+        if text is None:
+            return ""
+        value = str(text).replace("发布时间", "").replace("发布于", "").replace("更新于", "")
+        return self._clean_text(value)
 
     def _set_step(self, step):
         self._step = step

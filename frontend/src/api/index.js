@@ -10,6 +10,23 @@ api.interceptors.request.use((config) => {
   return config
 })
 
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error?.response?.status === 401) {
+      localStorage.removeItem("accessToken")
+      localStorage.removeItem("refreshToken")
+      if (typeof window !== "undefined") {
+        const current = `${window.location.pathname}${window.location.search}`
+        if (!window.location.pathname.startsWith("/login")) {
+          window.location.href = `/login?redirect=${encodeURIComponent(current)}`
+        }
+      }
+    }
+    return Promise.reject(error)
+  }
+)
+
 export function loginApi(data) {
   return api.post("/auth/login", data)
 }

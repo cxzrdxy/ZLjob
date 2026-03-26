@@ -124,6 +124,12 @@ const loading = ref(false)
 const form = ref({ task_name: "Python 职位采集", keyword: "Python", city: "北京", max_pages: 5 })
 let taskTimer = null
 
+function normalizeTaskList(payload) {
+  if (Array.isArray(payload)) return payload
+  if (Array.isArray(payload?.results)) return payload.results
+  return []
+}
+
 const trendOption = computed(() => ({
   color: ["#000000"],
   tooltip: {
@@ -173,7 +179,7 @@ async function load() {
     const [salaryResp, trendResp, taskResp] = await Promise.all([fetchSalaryStats(), fetchTrendStats(), fetchCrawlTasks()])
     salary.value = salaryResp.data.data || []
     trend.value = trendResp.data.data || []
-    tasks.value = taskResp.data.data || []
+    tasks.value = normalizeTaskList(taskResp.data.data)
     syncTaskPolling()
   } catch (e) {
     console.error(e)
@@ -203,7 +209,8 @@ function stopTaskPolling() {
 }
 
 function syncTaskPolling() {
-  const hasRunningTask = tasks.value.some((task) => task.status === "pending" || task.status === "running")
+  const list = normalizeTaskList(tasks.value)
+  const hasRunningTask = list.some((task) => task.status === "pending" || task.status === "running")
   if (!hasRunningTask) {
     stopTaskPolling()
     return
@@ -216,7 +223,7 @@ function syncTaskPolling() {
 async function loadTasks() {
   try {
     const taskResp = await fetchCrawlTasks()
-    tasks.value = taskResp.data.data || []
+    tasks.value = normalizeTaskList(taskResp.data.data)
     syncTaskPolling()
   } catch (e) {
     stopTaskPolling()
@@ -224,16 +231,52 @@ async function loadTasks() {
 }
 
 async function createTask() {
-  if (!form.value.task_name) return
+  if (!form.value.task_name) {
+    ElMessage.warning("请输入任务名称")
+    return
+  }
+  if (!form.value.keyword) {
+    ElMessage.warning("请输入关键词")
+    return
+  }
+  if (!form.value.city) {
+    ElMessage.warning("请输入城市")
+    return
+  }
   loading.value = true
   try {
     const resp = await createCrawlTask(form.value)
-    tasks.value = [resp.data.data, ...tasks.value]
+    const current = normalizeTaskList(tasks.value)
+    tasks.value = [resp.data.data, ...current]
     syncTaskPolling()
     ElMessage.success("已创建采集任务")
     await load()
   } catch (e) {
-    ElMessage.error(e.response?.data?.message || "创建失败")
+    const data = e?.response?.data
+    const code = e?.code
+    const networkError = !e?.response && (code === "ERR_NETWORK" || code === "ECONNREFUSED")
+    const detail = data?.detail
+    const message = data?.message
+    const fieldError = Object.values(data || {})
+      .flatMap((value) => (Array.isArray(value) ? value : [value]))
+      .find((value) => typeof value === "string" && value)
+    if (networkError) {
+      ElMessage.error("创建失败：后端服务暂不可用，请确认 Docker 中 backend 服务已就绪")
+      return
+    }
+    if (typeof detail === "string" && detail) {
+      ElMessage.error(detail)
+      return
+    }
+    if (message) {
+      ElMessage.error(message)
+      return
+    }
+    if (fieldError) {
+      ElMessage.error(fieldError)
+      return
+    }
+    ElMessage.error("创建失败，请稍后重试")
   } finally {
     loading.value = false
   }

@@ -22,7 +22,14 @@ class CrawlTaskListCreateView(generics.ListCreateAPIView):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         task = serializer.save(created_by=request.user)
-        run_crawl_task.delay(task.id)
+        try:
+            run_crawl_task.delay(task.id)
+        except Exception:
+            task.delete()
+            return Response(
+                wrap_response(message="任务调度失败，请检查 Redis/Celery 服务后重试", code=503),
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
         out = self.get_serializer(task).data
         return Response(wrap_response(out), status=status.HTTP_201_CREATED)
 
