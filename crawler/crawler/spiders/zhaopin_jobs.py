@@ -87,11 +87,75 @@ class ZhaopinJobsSpider(scrapy.Spider):
         ]
 
     def _list_url(self, page):
+        # 使用旧的 URL 格式: /?kw={关键词}&jl={城市代码}&p={页码}
+        # 城市代码如: 736=武汉, 801=长沙, 538=上海
         kw = quote_plus(self.keyword.strip())
         if self.city and self.city.strip():
-            jl = quote_plus(self.city.strip())
-            return f"https://sou.zhaopin.com/?kw={kw}&jl={jl}&p={page}"
+            city_code = self._get_city_code(self.city.strip())
+            return f"https://sou.zhaopin.com/?kw={kw}&jl={city_code}&p={page}"
         return f"https://sou.zhaopin.com/?kw={kw}&p={page}"
+
+    def _get_city_code(self, city_name):
+        """获取城市代码
+        支持常见城市名称到代码的映射
+        """
+        city_map = {
+            # 一线城市
+            "北京": "530",
+            "上海": "538",
+            "广州": "763",
+            "深圳": "765",
+            # 新一线
+            "成都": "801",
+            "杭州": "653",
+            "武汉": "736",
+            "西安": "854",
+            "重庆": "551",
+            "南京": "635",
+            "天津": "531",
+            "苏州": "639",
+            "长沙": "749",
+            "郑州": "719",
+            "东莞": "779",
+            "青岛": "703",
+            "沈阳": "599",
+            "宁波": "654",
+            "昆明": "831",
+            "合肥": "664",
+            "佛山": "768",
+            "大连": "600",
+            "福州": "681",
+            "厦门": "682",
+            "哈尔滨": "622",
+            "济南": "702",
+            "温州": "655",
+            "长春": "613",
+            "石家庄": "565",
+            "常州": "638",
+            "泉州": "684",
+            "南宁": "799",
+            "贵阳": "822",
+            "南昌": "691",
+            "金华": "656",
+            "无锡": "637",
+            "惠州": "773",
+            "珠海": "764",
+            "中山": "766",
+            "台州": "657",
+            "烟台": "707",
+            "兰州": "860",
+            "绍兴": "658",
+            "海口": "922",
+            "扬州": "642",
+        }
+        # 尝试直接匹配
+        if city_name in city_map:
+            return city_map[city_name]
+        # 尝试去掉"市"后缀匹配
+        if city_name.endswith("市") and city_name[:-1] in city_map:
+            return city_map[city_name[:-1]]
+        # 默认返回全国
+        return "489"  # 全国
 
     def start_requests(self):
         context_kwargs = {}
