@@ -15,22 +15,49 @@ from .models import CrawlTask
 def parse_salary_range(salary_text):
     if not salary_text:
         return 0, 0
-    text = salary_text.lower().replace(" ", "").replace("·13薪", "").replace("·14薪", "")
-    if "k" not in text:
-        return 0, 0
-    if "-" in text:
-        left, right = text.split("-", 1)
+    import re
+    text = salary_text.lower().replace(" ", "").replace("·13薪", "").replace("·14薪", "").replace("·16薪", "")
+    
+    # 匹配 "1.7-2.2万" 格式
+    match = re.search(r'(\d+\.?\d*)-(\d+\.?\d*)万', text)
+    if match:
         try:
-            min_v = int(float(left.replace("k", "")) * 1000)
-            max_v = int(float(right.replace("k", "")) * 1000)
+            min_v = int(float(match.group(1)) * 10000)
+            max_v = int(float(match.group(2)) * 10000)
             return min_v, max_v
         except ValueError:
             return 0, 0
-    try:
-        v = int(float(text.replace("k", "")) * 1000)
-        return v, v
-    except ValueError:
-        return 0, 0
+    
+    # 匹配 "9000-15000元" 格式
+    match = re.search(r'(\d+)-(\d+)元', text)
+    if match:
+        try:
+            min_v = int(match.group(1))
+            max_v = int(match.group(2))
+            return min_v, max_v
+        except ValueError:
+            return 0, 0
+    
+    # 匹配 "15k-20k" 格式
+    if "k" in text:
+        match = re.search(r'(\d+\.?\d*)k?-(\d+\.?\d*)k?', text)
+        if match:
+            try:
+                min_v = int(float(match.group(1)) * 1000)
+                max_v = int(float(match.group(2)) * 1000)
+                return min_v, max_v
+            except ValueError:
+                return 0, 0
+        # 单个数值如 "20k"
+        match = re.search(r'(\d+\.?\d*)k', text)
+        if match:
+            try:
+                v = int(float(match.group(1)) * 1000)
+                return v, v
+            except ValueError:
+                return 0, 0
+    
+    return 0, 0
 
 
 def parse_publish_time(text):
